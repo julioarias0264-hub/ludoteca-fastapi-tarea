@@ -11,7 +11,7 @@ async function request(path, options) {
 }
 const price = g => g.price == null ? 'Precio no disponible' : g.price === 0 ? 'Gratis' : Number(g.price).toFixed(2);
 const number = v => v == null ? 'No disponible' : Number(v).toLocaleString('es-MX');
-const safeUrl = v => {try {const u=new URL(v); return ['http:','https:'].includes(u.protocol)?u.href:undefined;}catch{return undefined;}};
+const safeUrl = v => {if (typeof v === 'string' && /^\/covers\/[a-f0-9]{32}\.jpg$/.test(v)) return v; try {const u=new URL(v); return ['http:','https:'].includes(u.protocol)?u.href:undefined;}catch{return undefined;}};
 const textOnly = v => {
  const doc = new DOMParser().parseFromString(v || '', 'text/html');
  doc.querySelectorAll('script,style').forEach(el=>el.remove());

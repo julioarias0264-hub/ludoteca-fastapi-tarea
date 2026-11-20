@@ -4,3 +4,5 @@ dist/
 .postgres/
 .env
 __pycache__/
+
+/data/

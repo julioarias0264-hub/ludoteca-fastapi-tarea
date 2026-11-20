@@ -1,60 +1,80 @@
-# Ludoteca
+# Ludoteca · Proyecto FastAPI
 
-Catálogo de Steam con React + Vite, FastAPI y PostgreSQL 18. El frontend consulta la base restaurada; `src/games.json` se conserva únicamente como muestra histórica.
+**Alumno:** Julio César Arias Gaytán
+**Materia:** Programación para Internet
 
-## Desarrollo local
+Catálogo de videojuegos con React y FastAPI. Juegos y géneros se relacionan de muchos a muchos y se guardan en SQLite con SQLModel. La primera ejecución carga 12 registros de muestra de `src/games.json` sin restaurar una base externa.
 
-Desde `/home/jules/ludoteca`:
+## Instalación
 
-```bash
-# Si PostgreSQL no está iniciado:
-/usr/lib/postgresql/18/bin/pg_ctl -D "$PWD/.postgres" -l "$PWD/.postgres/server.log" -o '-p 55439 -k /tmp -h 127.0.0.1' start
+Necesitas Python 3.11+, Node.js 22+ y Redis. Para levantar Redis de forma local con Docker:
 
-# Terminal 1: API
-.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-
-# Terminal 2: frontend
-npm run dev -- --host 127.0.0.1
+```sh
+docker run --rm --name ludoteca-redis -p 127.0.0.1:6379:6379 redis:7-alpine
 ```
 
-Abrir http://127.0.0.1:5173/Bases-de-datos-Dataset-Videojuegos/ . Documentación interactiva de la API: http://127.0.0.1:8000/docs .
+También puedes iniciar tu Redis instalado con `redis-server --bind 127.0.0.1`. Si usas otro servidor, configura `REDIS_URL`.
 
-La instancia está aislada del PostgreSQL del sistema y escucha únicamente en localhost. Usa el usuario `ludoteca`, base `ludoteca`, puerto `55439`. `DATABASE_URL` permite configurar otra conexión. Los datos de la instancia y el entorno Python están excluidos de Git.
+En otra terminal, desde la raíz del repositorio:
 
-## Instalación en otra máquina
-
-Requiere PostgreSQL 18, Python compatible con FastAPI y Node.js:
-
-```bash
-uv venv .venv
-uv pip install --python .venv/bin/python -r backend/requirements.txt
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
 npm ci
-```
-
-Crear una base vacía y restaurar `respaldo_steam_custom.backup` con `pg_restore --no-owner --no-privileges --exit-on-error`. Configurar `DATABASE_URL` antes de iniciar FastAPI. No restaurar sobre una base con información existente.
-
-## Funcionalidad
-
-- Búsqueda por nombre, filtros por género y precio, y páginas de 24 juegos.
-- Fichas con desarrolladores, plataformas, reseñas, Metacritic, pico de jugadores, idiomas, editoras, etiquetas, logros, DLC, capturas y videos disponibles.
-- Registro y edición de juegos, relaciones con géneros y desarrolladores, plataformas y estadísticas, en una transacción.
-- Los atributos adicionales de la tabla original `steam_games` son de consulta; las modificaciones se guardan en las siete tablas normalizadas. Las capturas y los videos existentes se conservan al editar.
-- La descripción HTML del dataset se muestra como texto para evitar ejecutar contenido del respaldo.
-
-Los precios proceden del respaldo y su moneda no está verificada; no representan precios actuales. Imágenes y videos requieren acceso a los servidores de Steam. No todos los juegos incluyen todos los campos.
-
-## Comprobaciones
-
-```bash
 npm run build
-uv pip install --python .venv/bin/python httpx
-.venv/bin/python -m tests.check_api
+python -m uvicorn backend.main:app
 ```
 
-Las pruebas de integración requieren la base restaurada; sus escrituras se revierten al terminar.
+Abre <http://127.0.0.1:8000/> para ver el catálogo y <http://127.0.0.1:8000/docs> para ejecutar todos los endpoints. Para editar el frontend, puedes ejecutar `npm run dev` en otra terminal y abrir el enlace que muestra Vite.
 
-## Publicación
+La base y las portadas se guardan en `data/`, excluido de Git. La API está pensada para probarse localmente. Sus rutas de escritura no requieren autenticación.
 
-El proxy de Vite funciona durante el desarrollo. Para producción, servir la API bajo `/Bases-de-datos-Dataset-Videojuegos/api` mediante un proxy inverso, o configurar `VITE_API_URL` al compilar y el origen permitido en el servidor. GitHub Pages por sí solo no ejecuta FastAPI ni PostgreSQL. Esta versión está preparada para uso local; no exponer sus operaciones de escritura públicamente sin autenticación.
+## Ejemplos con curl
 
-Fuente original: https://www.kaggle.com/datasets/hubertsidorowicz/steam-games-dataset-daily-updates
+```sh
+API=http://127.0.0.1:8000/api
+
+# Géneros: crea uno y sustituye 99 por el ID que devuelva.
+curl -X POST "$API/genres" -H 'Content-Type: application/json' -d '{"name":"Ritmo"}'
+curl "$API/genres/records"
+curl "$API/genres/99"
+curl -X PUT "$API/genres/99" -H 'Content-Type: application/json' -d '{"name":"Música"}'
+
+# Juegos: crear, listar, consultar, editar y borrar.
+curl -X POST "$API/games" -H 'Content-Type: application/json' \
+  -d '{"app_id":999001,"name":"Juego de muestra","genres":["Música"],"positive":20}'
+curl "$API/games?genre=M%C3%BAsica"
+curl "$API/games/999001"
+curl -X PUT "$API/games/999001" -H 'Content-Type: application/json' \
+  -d '{"app_id":999001,"name":"Juego actualizado","genres":["Música"],"positive":35}'
+
+# Portada: sustituye portada.png por un archivo real.
+curl -F 'file=@portada.png' "$API/games/999001/cover"
+
+# Ranking: la primera consulta devuelve MISS y la segunda HIT con Redis activo.
+curl -i "$API/ranking?genre=M%C3%BAsica"
+curl -i "$API/ranking?genre=M%C3%BAsica"
+
+# JSON Schema y ejemplo rechazado con 422 porque app_id debe ser positivo.
+curl "$API/schema/game"
+curl -i -X POST "$API/validate/game" -H 'Content-Type: application/json' \
+  -d '{"app_id":0,"name":"Nombre"}'
+
+curl -i -X DELETE "$API/games/999001"
+curl -i -X DELETE "$API/genres/99"
+```
+
+Las portadas PNG, JPEG y WebP se validan, se convierten a JPEG y se sirven en `/covers/`. El ranking ordena por reseñas positivas, guarda resultados durante 60 segundos e invalida la caché después de cambios. Si Redis no está disponible, devuelve los datos directamente desde SQLite con `X-Cache: BYPASS`. El catálogo y el ranking usan datos de muestra, no métricas en vivo.
+
+Fuente de los datos de muestra: [Steam Games Dataset](https://www.kaggle.com/datasets/hubertsidorowicz/steam-games-dataset-daily-updates).
+
+## Pruebas
+
+Con Redis local activo, ejecuta la prueba de integración. Usa una SQLite
+temporal y una base Redis de prueba independiente de la del catálogo.
+
+```sh
+pip install httpx
+TEST_REDIS_URL=redis://127.0.0.1:6379/15 python -m tests.check_api
+```
